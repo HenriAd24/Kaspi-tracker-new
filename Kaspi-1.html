@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kaspi Stock Tracker - Live</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: linear-gradient(135deg, #0f172a 0%, #1e3a8a 50%, #0f172a 100%);
+            color: white;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container { max-width: 1400px; margin: 0 auto; }
+        .header {
+            background: rgba(255,255,255,0.1);
+            backdrop-filter: blur(10px);
+            padding: 30px;
+            border-radius: 20px;
+            margin-bottom: 20px;
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+        .title { font-size: 36px; font-weight: bold; margin-bottom: 10px; }
+        .subtitle { color: #93c5fd; font-size: 18px; }
+        .price-card {
+            background: linear-gradient(135deg, #3b82f6 0%, #9333ea 100%);
+            padding: 40px;
+            border-radius: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        .price { font-size: 72px; font-weight: bold; margin: 20px 0; }
+        .change { font-size: 28px; margin-top: 10px; }
+        .positive { color: #86efac; }
+        .negative { color: #fca5a5; }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        .stat-card {
+            background: rgba(255,255,255,0.1);
+            backdrop-filter: blur(10px);
+            padding: 20px;
+            border-radius: 15px;
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+        .stat-label { color: #cbd5e1; font-size: 14px; margin-bottom: 8px; }
+        .stat-value { font-size: 28px; font-weight: bold; color: #60a5fa; }
+        .ratios-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+        .ratio-card {
+            background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+            padding: 20px;
+            border-radius: 15px;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .ratio-name { font-weight: bold; margin-bottom: 5px; display: flex; justify-content: space-between; align-items: center; }
+        .ratio-value { font-size: 32px; color: #60a5fa; font-weight: bold; margin: 8px 0; }
+        .ratio-desc { font-size: 12px; color: #94a3b8; }
+        .indicator { width: 12px; height: 12px; border-radius: 50%; }
+        .good { background: #4ade80; }
+        .warning { background: #fbbf24; }
+        .button {
+            background: #3b82f6;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            cursor: pointer;
+            margin-right: 10px;
+            margin-top: 10px;
+        }
+        .button:hover { background: #2563eb; }
+        .button.active { background: #22c55e; }
+        .loading {
+            text-align: center;
+            padding: 100px 20px;
+            font-size: 24px;
+        }
+        .spinner {
+            border: 4px solid rgba(255,255,255,0.3);
+            border-top: 4px solid #3b82f6;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .alert {
+            background: rgba(234, 179, 8, 0.2);
+            border: 1px solid rgba(234, 179, 8, 0.5);
+            padding: 15px;
+            border-radius: 10px;
+            margin-top: 20px;
+        }
+        .success-alert {
+            background: rgba(34, 197, 94, 0.2);
+            border: 1px solid rgba(34, 197, 94, 0.5);
+            padding: 15px;
+            border-radius: 10px;
+            margin-top: 20px;
+        }
+        .price-history {
+            background: rgba(255,255,255,0.1);
+            backdrop-filter: blur(10px);
+            padding: 20px;
+            border-radius: 15px;
+            border: 1px solid rgba(255,255,255,0.2);
+            margin-bottom: 20px;
+        }
+        .history-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+        .history-item:last-child { border-bottom: none; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div id="app">
+            <div class="loading">
+                <div class="spinner"></div>
+                <p>Lade Live-Daten von Alpha Vantage...</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_KEY = 'FNQR0XCHLKBR2LK5';
+        const SYMBOL = 'KSPI'; // Kaspi.kz Symbol
+        
+        let stockData = null;
+        let companyInfo = null;
+        let autoRefresh = true;
+        let refreshInterval = null;
+        let priceHistory = [];
+
+        async function fetchStockData() {
+            try {
+                // Hole aktuelle Quote
+                const quoteResponse = await fetch(
+                    `https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${SYMBOL}&apikey=${API_KEY}`
+                );
+                const quoteData = await quoteResponse.json();
+                
+                // Hole Company Overview
+                const overviewResponse = await fetch(
+                    `https://www.alphavantage.co/query?function=OVERVIEW&symbol=${SYMBOL}&apikey=${API_KEY}`
+                );
+                const overviewData = await overviewResponse.json();
+
+                if (quoteData['Global Quote'] && Object.keys(quoteData['Global Quote']).length > 0) {
+                    const quote = quoteData['Global Quote'];
+                    
+                    stockData = {
+                        symbol: quote['01. symbol'],
+                        price: parseFloat(quote['05. price']),
+                        change: parseFloat(quote['09. change']),
+                        changePercent: parseFloat(quote['10. change percent'].replace('%', '')),
+                        volume: parseInt(quote['06. volume']),
+                        high: parseFloat(quote['03. high']),
+                        low: parseFloat(quote['04. low']),
+                        open: parseFloat(quote['02. open']),
+                        previousClose: parseFloat(quote['08. previous close']),
+                        latestTradingDay: quote['07. latest trading day']
+                    };
+
+                    // Speichere Preisverlauf
+                    const now = new Date();
+                    priceHistory.unshift({
+                        time: now.toLocaleTimeString('de-DE'),
+                        price: stockData.price,
+                        change: stockData.change
+                    });
+                    if (priceHistory.length > 10) priceHistory.pop();
+
+                    if (overviewData && overviewData.Symbol) {
+                        companyInfo = {
+                            name: overviewData.Name || 'Kaspi.kz JSC',
+                            exchange: overviewData.Exchange || 'NASDAQ',
+                            currency: overviewData.Currency || 'USD',
+                            marketCap: overviewData.MarketCapitalization,
+                            peRatio: parseFloat(overviewData.PERatio) || 0,
+                            pbRatio: parseFloat(overviewData.PriceToBookRatio) || 0,
+                            eps: parseFloat(overviewData.EPS) || 0,
+                            dividendYield: parseFloat(overviewData.DividendYield) * 100 || 0,
+                            profitMargin: parseFloat(overviewData.ProfitMargin) * 100 || 0,
+                            operatingMargin: parseFloat(overviewData.OperatingMarginTTM) * 100 || 0,
+                            roe: parseFloat(overviewData.ReturnOnEquityTTM) * 100 || 0,
+                            roa: parseFloat(overviewData.ReturnOnAssetsTTM) * 100 || 0,
+                            debtToEquity: parseFloat(overviewData.DebtToEquity) || 0,
+                            currentRatio: parseFloat(overviewData.CurrentRatio) || 0,
+                            quickRatio: parseFloat(overviewData.QuickRatio) || 0,
+                            priceToSales: parseFloat(overviewData.PriceToSalesRatioTTM) || 0
+                        };
+                    }
+
+                    renderApp(null, true);
+                } else {
+                    throw new Error('Keine Daten für dieses Symbol verfügbar');
+                }
+            } catch (error) {
+                console.error('API Fehler:', error);
+                renderApp('API-Fehler: ' + error.message, false);
+            }
+        }
+
+        function toggleAutoRefresh() {
+            autoRefresh = !autoRefresh;
+            if (autoRefresh) {
+                refreshInterval = setInterval(fetchStockData, 60000); // Alle 60 Sekunden
+            } else {
+                clearInterval(refreshInterval);
+            }
+            renderApp(null, stockData !== null);
+        }
+
+        function formatMarketCap(value) {
+            if (!value) return 'N/A';
+            const num = parseInt(value);
+            if (num >= 1e9) return '$' + (num / 1e9).toFixed(2) + 'B';
+            if (num >= 1e6) return '$' + (num / 1e6).toFixed(2) + 'M';
+            return '$' + num.toLocaleString('de-DE');
+        }
+
+        function renderApp(errorMsg = null, hasData = false) {
+            if (!stockData && !errorMsg) {
+                return;
+            }
+
+            const isPositive = stockData ? stockData.change >= 0 : false;
+            const now = new Date().toLocaleTimeString('de-DE');
+            
+            document.getElementById('app').innerHTML = `
+                <div class="header">
+                    <div class="title">${companyInfo?.name || 'Kaspi.kz JSC'}</div>
+                    <div class="subtitle">
+                        ${stockData?.symbol || SYMBOL} • 
+                        ${companyInfo?.exchange || 'NASDAQ'} • 
+                        ${companyInfo?.currency || 'USD'}
+                    </div>
+                    <div style="margin-top: 15px;">
+                        <button class="button" onclick="fetchStockData()">🔄 Aktualisieren</button>
+                        <button class="button ${autoRefresh ? 'active' : ''}" onclick="toggleAutoRefresh()">
+                            Auto-Refresh: ${autoRefresh ? 'AN (60s)' : 'AUS'}
+                        </button>
+                        <div style="margin-top: 10px; color: #94a3b8; font-size: 14px;">
+                            Letzte Aktualisierung: ${now}
+                            ${stockData?.latestTradingDay ? ` | Handelstag: ${stockData.latestTradingDay}` : ''}
+                        </div>
+                    </div>
+                </div>
+
+                ${hasData ? `
+                    ${stockData ? `
+                        <div class="price-card">
+                            <div style="font-size: 14px; color: rgba(255,255,255,0.8);">Aktueller Preis</div>
+                            <div class="price">
+                                $${stockData.price.toFixed(2)}
+                                <span style="font-size: 32px; opacity: 0.8;">${companyInfo?.currency || 'USD'}</span>
+                            </div>
+                            <div class="change ${isPositive ? 'positive' : 'negative'}">
+                                ${isPositive ? '▲' : '▼'} 
+                                ${isPositive ? '+' : ''}${stockData.change.toFixed(2)}
+                                (${isPositive ? '+' : ''}${stockData.changePercent.toFixed(2)}%)
+                            </div>
+                        </div>
+
+                        <div class="stats-grid">
+                            <div class="stat-card">
+                                <div class="stat-label">💵 Eröffnung</div>
+                                <div class="stat-value">$${stockData.open.toFixed(2)}</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-label">📈 Tageshoch</div>
+                                <div class="stat-value">$${stockData.high.toFixed(2)}</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-label">📉 Tagestief</div>
+                                <div class="stat-value">$${stockData.low.toFixed(2)}</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-label">📊 Volumen</div>
+                                <div class="stat-value">${stockData.volume.toLocaleString('de-DE')}</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-label">🏢 Marktkapitalisierung</div>
+                                <div class="stat-value">${formatMarketCap(companyInfo?.marketCap)}</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-label">📅 Vorheriger Schluss</div>
+                                <div class="stat-value">$${stockData.previousClose.toFixed(2)}</div>
+                            </div>
+                        </div>
+
+                        ${priceHistory.length > 0 ? `
+                            <div class="price-history">
+                                <h3 style="margin-bottom: 15px; font-size: 20px;">📈 Preisverlauf (Letzte Updates)</h3>
+                                ${priceHistory.map(item => `
+                                    <div class="history-item">
+                                        <span style="color: #94a3b8;">${item.time}</span>
+                                        <span style="font-weight: bold;">$${item.price.toFixed(2)}</span>
+                                        <span class="${item.change >= 0 ? 'positive' : 'negative'}">
+                                            ${item.change >= 0 ? '+' : ''}${item.change.toFixed(2)}
+                                        </span>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        ` : ''}
+
+                        ${companyInfo ? `
+                            <div class="header">
+                                <div class="title" style="font-size: 24px; margin-bottom: 20px;">📊 Financial Ratios & Kennzahlen</div>
+                                <div class="ratios-grid">
+                                    ${createRatioCard('P/E Ratio', companyInfo.peRatio > 0 ? companyInfo.peRatio.toFixed(2) : 'N/A', 'Kurs-Gewinn-Verhältnis', companyInfo.peRatio > 0 && companyInfo.peRatio < 20)}
+                                    ${createRatioCard('P/B Ratio', companyInfo.pbRatio > 0 ? companyInfo.pbRatio.toFixed(2) : 'N/A', 'Kurs-Buchwert-Verhältnis', companyInfo.pbRatio > 0 && companyInfo.pbRatio < 5)}
+                                    ${createRatioCard('ROE', companyInfo.roe > 0 ? companyInfo.roe.toFixed(1) + '%' : 'N/A', 'Eigenkapitalrendite', companyInfo.roe > 15)}
+                                    ${createRatioCard('ROA', companyInfo.roa > 0 ? companyInfo.roa.toFixed(1) + '%' : 'N/A', 'Gesamtkapitalrendite', companyInfo.roa > 10)}
+                                    ${createRatioCard('Debt/Equity', companyInfo.debtToEquity > 0 ? companyInfo.debtToEquity.toFixed(2) : 'N/A', 'Verschuldungsgrad', companyInfo.debtToEquity < 1)}
+                                    ${createRatioCard('Current Ratio', companyInfo.currentRatio > 0 ? companyInfo.currentRatio.toFixed(2) : 'N/A', 'Liquidität 3. Grades', companyInfo.currentRatio > 1.5)}
+                                    ${createRatioCard('Quick Ratio', companyInfo.quickRatio > 0 ? companyInfo.quickRatio.toFixed(2) : 'N/A', 'Liquidität 2. Grades', companyInfo.quickRatio > 1)}
+                                    ${createRatioCard('Profit Margin', companyInfo.profitMargin > 0 ? companyInfo.profitMargin.toFixed(1) + '%' : 'N/A', 'Gewinnmarge', companyInfo.profitMargin > 15)}
+                                    ${createRatioCard('Operating Margin', companyInfo.operatingMargin > 0 ? companyInfo.operatingMargin.toFixed(1) + '%' : 'N/A', 'Operative Marge', companyInfo.operatingMargin > 20)}
+                                    ${createRatioCard('EPS', companyInfo.eps > 0 ? '$' + companyInfo.eps.toFixed(2) : 'N/A', 'Gewinn pro Aktie', companyInfo.eps > 3)}
+                                    ${createRatioCard('Dividend Yield', companyInfo.dividendYield > 0 ? companyInfo.dividendYield.toFixed(2) + '%' : 'N/A', 'Dividendenrendite', companyInfo.dividendYield > 1.5)}
+                                    ${createRatioCard('P/S Ratio', companyInfo.priceToSales > 0 ? companyInfo.priceToSales.toFixed(2) : 'N/A', 'Kurs-Umsatz-Verhältnis', companyInfo.priceToSales < 5)}
+                                </div>
+                            </div>
+                        ` : ''}
+
+                        <div class="success-alert">
+                            <strong>✅ Live-Daten aktiv!</strong><br>
+                            Verbunden mit Alpha Vantage API. Daten werden ${autoRefresh ? 'automatisch alle 60 Sekunden' : 'manuell'} aktualisiert.
+                        </div>
+                    ` : ''}
+                ` : ''}
+
+                ${errorMsg ? `
+                    <div class="alert">
+                        <strong>⚠️ ${errorMsg}</strong><br>
+                        Bitte überprüfen Sie:
+                        <ul style="margin-top: 10px; margin-left: 20px;">
+                            <li>Ist das Symbol "${SYMBOL}" korrekt?</li>
+                            <li>Ist Ihr API-Key noch gültig?</li>
+                            <li>API-Limit erreicht? (Alpha Vantage: 5 Anfragen/Minute, 500/Tag)</li>
+                        </ul>
+                    </div>
+                ` : ''}
+            `;
+        }
+
+        function createRatioCard(name, value, desc, isGood) {
+            return `
+                <div class="ratio-card">
+                    <div class="ratio-name">
+                        <span>${name}</span>
+                        ${value !== 'N/A' ? `<div class="indicator ${isGood ? 'good' : 'warning'}"></div>` : ''}
+                    </div>
+                    <div class="ratio-value">${value}</div>
+                    <div class="ratio-desc">${desc}</div>
+                </div>
+            `;
+        }
+
+        // App starten
+        fetchStockData();
+        refreshInterval = setInterval(fetchStockData, 60000); // Alle 60 Sekunden
+    </script>
+</body>
+</html>
